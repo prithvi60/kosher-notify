@@ -1,0 +1,105 @@
+{%- comment -%}
+Notify button snippet
+Usage: include this snippet in the product template where you want the button to appear.
+It shows the button when product is out of stock and wires `assets/notify.js` to handle the popup and POST.
+{%- endcomment -%}
+
+{%- assign first_variant = product.selected_or_first_available_variant -%}
+
+{% comment %} {% if first_variant.available == false %} {% endcomment %}
+  <button id="notify-btn"
+    data-product-id="{{ product.id }}"
+    data-variant-id="{{ first_variant.id }}"
+    data-inventory-id="{{ first_variant.inventory_item_id }}"
+    class="notify-button">
+    Notify me when available
+  </button>
+
+  <div id="notify-modal" class="notify-modal" style="display:none;">
+    <div class="notify-modal-content">
+      <button id="notify-close" class="notify-close">×</button>
+      <h3>Notify me when available</h3>
+      <input id="notify-email" type="email" placeholder="you@example.com" />
+      <button id="notify-submit">Submit</button>
+      <div id="notify-status" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  {% comment %} Include JS asset (ensure theme copies assets) {% endcomment %}
+  <style>
+  .notify-button { padding: 8px 12px; background:#0a7; color:#fff; border:none; border-radius:4px; cursor:pointer }
+  .notify-modal { position:fixed; left:0; right:0; top:0; bottom:0; background: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999 }
+  .notify-modal-content { background:#fff; padding:20px; border-radius:6px; width:320px; max-width:90% }
+  .notify-close { float:right; border:none; background:transparent; font-size:18px; cursor:pointer }
+  #notify-email { width:100%; padding:8px; margin-top:8px }
+  #notify-submit { margin-top:8px; padding:8px 12px }
+  </style>
+
+  <script defer>
+  // notify.js - inline for snippet
+  (function () {
+    function qs(id) { return document.getElementById(id); }
+
+    function showModal() {
+      qs('notify-modal').style.display = 'block';
+    }
+    function hideModal() {
+      qs('notify-modal').style.display = 'none';
+    }
+
+    document.addEventListener('click', function (e) {
+      const btn = e.target.closest && e.target.closest('#notify-btn');
+      if (btn) {
+        e.preventDefault();
+        // store attributes on modal for use
+        qs('notify-modal').dataset.productId = btn.dataset.productId;
+        qs('notify-modal').dataset.inventoryId = btn.dataset.inventoryId;
+        showModal();
+      }
+    });
+
+    // close button
+    document.addEventListener('click', function (e) {
+      if (e.target && e.target.id === 'notify-close') hideModal();
+    });
+
+    qs('notify-submit')?.addEventListener('click', async function () {
+      const email = qs('notify-email')?.value?.trim();
+      const modal = qs('notify-modal');
+      const productId = modal?.dataset?.productId;
+      const inventoryItemId = modal?.dataset?.inventoryId;
+      const status = qs('notify-status');
+
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        status.textContent = 'Please enter a valid email';
+        status.style.color = 'red';
+        return;
+      }
+
+      status.textContent = 'Sending…';
+      status.style.color = 'black';
+
+      try {
+        const resp = await fetch('/api/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, inventoryItemId, productId }),
+        });
+        const json = await resp.json();
+        if (resp.ok) {
+          status.textContent = 'You will be notified when the product is back in stock.';
+          status.style.color = 'green';
+        } else {
+          status.textContent = json?.error || 'Error subscribing';
+          status.style.color = 'red';
+        }
+      } catch (err) {
+        status.textContent = 'Network error';
+        status.style.color = 'red';
+      }
+    });
+
+  })();
+  </script>
+
+{% comment %} {% endif %} {% endcomment %}

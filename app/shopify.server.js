@@ -37,3 +37,28 @@ export const emailConfig = {
   smtpPass: process.env.SMTP_PASS || "",
   testNotifyEmail: process.env.TEST_NOTIFY_EMAIL || "",
 };
+export async function getProductFromInventoryItem(session, inventoryItemId) {
+  const client = new shopify.clients.Graphql({ session });
+
+  const query = `
+    query getProductFromInventoryItem($id: ID!) {
+      inventoryItem(id: $id) {
+        id
+        variant {
+          id
+          sku
+          product {
+            id
+            title
+            handle
+          }
+        }
+      }
+    }
+  `;
+
+  const result = await client.query({
+    data: { query, variables: { id: `gid://shopify/InventoryItem/${inventoryItemId}` } },
+  });
+  return result.body.data.inventoryItem?.variant;
+}

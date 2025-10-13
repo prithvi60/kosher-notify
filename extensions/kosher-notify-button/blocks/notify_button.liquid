@@ -1,0 +1,121 @@
+{% comment %}
+App block for Notify button. Merchants can add this block through the Theme Editor or enable it as an app embed.
+This block uses the same assets as the snippet version (notify.js, notify.css).
+{% endcomment %}
+
+{%- assign product_obj = block.settings.product | default: product -%}
+{%- assign first_variant = product_obj.selected_or_first_available_variant -%}
+{% if first_variant.available == false %}
+  <div class="app-embed-notify">
+    <button class="notify-btn"
+      data-product-id="{{ first_variant.id }}"
+      data-variant-id="{{ first_variant.id }}"
+      data-inventory-id="{{ product_obj.id}}">
+      {{ block.settings.label | default: 'Notify me when available' }}
+    </button>
+
+    <div class="notify-modal" style="display:none;">
+      <div class="notify-modal-content">
+        <button class="notify-close">×</button>
+        <h3>{{ block.settings.label | default: 'Notify me when available' }}</h3>
+        <input class="notify-email" type="email" placeholder="you@example.com" />
+        <button class="notify-submit">Submit</button>
+        <div class="notify-status" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <style>
+    .notify-btn { padding: 8px 12px; background:#0a7; color:#fff; border:none; border-radius:4px; cursor:pointer }
+    .notify-modal { position:fixed; left:0; right:0; top:0; bottom:0; background: rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999 }
+    .notify-modal-content { background:#fff; padding:20px; border-radius:6px; width:320px; max-width:90% }
+    .notify-close { float:right; border:none; background:transparent; font-size:18px; cursor:pointer }
+    .notify-email { width:100%; padding:8px; margin-top:8px }
+    .notify-submit { margin-top:8px; padding:8px 12px }
+    </style>
+
+    <script defer>
+    (function () {
+      function closest(el, selector) { return el && el.closest && el.closest(selector); }
+
+      document.addEventListener('click', function (e) {
+        const btn = e.target.closest && e.target.closest('.notify-btn');
+        if (btn) {
+          e.preventDefault();
+          const container = closest(btn, '.app-embed-notify');
+          const modal = container && container.querySelector('.notify-modal');
+          if (!modal) return;
+          modal.dataset.productId = btn.dataset.productId;
+          modal.dataset.inventoryId = btn.dataset.inventoryId;
+          modal.style.display = 'block';
+        }
+
+        // close
+        const close = e.target.closest && e.target.closest('.notify-close');
+        if (close) {
+          const container = closest(close, '.app-embed-notify');
+          const modal = container && container.querySelector('.notify-modal');
+          if (modal) modal.style.display = 'none';
+        }
+      });
+
+      document.addEventListener('click', async function (e) {
+        const submit = e.target.closest && e.target.closest('.notify-submit');
+        if (!submit) return;
+        const container = closest(submit, '.app-embed-notify');
+        const modal = container && container.querySelector('.notify-modal');
+        const emailEl = container && container.querySelector('.notify-email');
+        const statusEl = container && container.querySelector('.notify-status');
+        if (!emailEl || !modal || !statusEl) return;
+
+        const email = emailEl.value && emailEl.value.trim();
+        if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+          statusEl.textContent = 'Please enter a valid email';
+          statusEl.style.color = 'red';
+          return;
+        }
+
+        statusEl.textContent = 'Sending…';
+        statusEl.style.color = 'black';
+
+        const productId = modal.dataset.productId;
+        const inventoryItemId = modal.dataset.inventoryId;
+
+        try {
+          const resp = await fetch('https://d5c5341ff909.ngrok-free.app/api/subscribe', {
+            method: 'POST',
+
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, inventoryItemId, productId }),
+          });
+          const json = await resp.json();
+          if (resp.ok) {
+            statusEl.textContent = 'You will be notified when the product is back in stock.';
+            statusEl.style.color = 'green';
+          } else {
+            statusEl.textContent = json?.error || 'Error subscribing';
+            statusEl.style.color = 'red';
+          }
+        } catch (err) {
+          statusEl.textContent = 'Network error';
+          statusEl.style.color = 'red';
+        }
+      });
+    })();
+    </script>
+    {% comment %} <script>
+  console.log('first_variant', {{ first_variant | json }});
+console.log('product_obj', {{  block.settings.product  | json }});
+</script> {% endcomment %}
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Notify Button",
+  "target": "section",
+  "settings": [
+    { "type": "product", "id": "product", "label": "product", "autofill": true },
+    { "type": "text", "id": "label", "label": "Button label", "default": "Notify me when available" }
+  ]
+}
+{% endschema %}
