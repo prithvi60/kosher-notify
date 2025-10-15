@@ -7,8 +7,9 @@ admin panel.webhook settings
 
 run local
 
-ngrok app 300
+ngrok http 3000
 
 use tunnel url after replacing
 
+cd kosher-notify
 shopify app dev --tunnel-url=tunnelurl:300

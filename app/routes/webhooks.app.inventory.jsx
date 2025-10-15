@@ -68,7 +68,11 @@ export const action = async ({ request }) => {
 
               if (matchingVariant) {
                 productId = String(matchingVariant.id);
-                console.log("✅ Resolved productId:", productId,matchingVariant);
+                console.log(
+                  "✅ Resolved productId:",
+                  productId,
+                  matchingVariant,
+                );
               } else {
                 console.warn(
                   "⚠️ No variant found for inventory_item_id:",
@@ -108,11 +112,10 @@ export const action = async ({ request }) => {
           subs = await prisma.subscription.findMany({
             where: { productId: `${productId}`, active: true },
           });
-        } else if (inventoryItemId) {
-          // fallback to inventoryItemId
-          subs = await prisma.subscription.findMany({
-            where: { inventoryItemId: `${inventoryItemId}`, active: true },
-          });
+        } else {
+          console.error(
+            `No valid productId found for inventoryItemId=${inventoryItemId}. Skipping subscriber lookup.`,
+          );
         }
 
         console.log("Subscriptions found:", subs);
@@ -128,6 +131,18 @@ export const action = async ({ request }) => {
               }),
             ),
           );
+          // 🧹 Delete subscribers after sending mails
+          try {
+            const idsToDelete = subs.map((s) => s.id);
+            await prisma.subscription.deleteMany({
+              where: { id: { in: idsToDelete } },
+            });
+            console.log(
+              `🗑️ Deleted ${idsToDelete.length} subscribers after mailing.`,
+            );
+          } catch (deleteErr) {
+            console.error("❌ Failed to delete subscribers:", deleteErr);
+          }
         } else {
           // To admin mail if something is failing
           console.log(

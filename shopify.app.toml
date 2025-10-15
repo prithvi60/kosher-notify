@@ -2,7 +2,7 @@
 
 client_id = "7ef3f848d80b290d4f3af5ca33c3db58"
 name = "kosher-notify"
-application_url = "https://d5c5341ff909.ngrok-free.app"
+application_url = "https://889719f997c0.ngrok-free.app"
 embedded = true
 
 [build]
@@ -28,4 +28,4 @@ api_version = "2025-10"
 scopes = "read_inventory,read_products,write_inventory,write_products"
 
 [auth]
-redirect_urls = [ "https://d5c5341ff909.ngrok-free.app/api/auth" ]
+redirect_urls = [ "https://889719f997c0.ngrok-free.app/api/auth" ]

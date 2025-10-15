@@ -6,7 +6,7 @@ It shows the button when product is out of stock and wires `assets/notify.js` to
 
 {%- assign first_variant = product.selected_or_first_available_variant -%}
 
-{% comment %} {% if first_variant.available == false %} {% endcomment %}
+{% if first_variant.available == false %}
   <button id="notify-btn"
     data-product-id="{{ product.id }}"
     data-variant-id="{{ first_variant.id }}"
@@ -102,4 +102,4 @@ It shows the button when product is out of stock and wires `assets/notify.js` to
   })();
   </script>
 
-{% comment %} {% endif %} {% endcomment %}
+{% endif %}
