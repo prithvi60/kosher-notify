@@ -31,7 +31,7 @@ export const action = async ({ request }) => {
     const payload = JSON.parse(rawBody);
 
     // Your logic here
-    console.log("Webhook verified!", payload, rawBody);
+    // console.log("Webhook verified!", payload, rawBody);
     const inventoryItemId = payload.inventory_item_id; // testing with Selling Plans Ski Wax
     const available = Number(payload.available ?? 0);
     // Prefer productId from payload; fallback to inventoryItemId if necessary
@@ -68,11 +68,11 @@ export const action = async ({ request }) => {
 
               if (matchingVariant) {
                 productId = String(matchingVariant.id);
-                console.log(
-                  "✅ Resolved productId:",
-                  productId,
-                  matchingVariant,
-                );
+                // console.log(
+                //   "✅ Resolved productId:",
+                //   productId,
+                //   matchingVariant,
+                // );
               } else {
                 console.warn(
                   "⚠️ No variant found for inventory_item_id:",
@@ -102,9 +102,9 @@ export const action = async ({ request }) => {
       }
     }
     if (available > 0) {
-      console.log(
-        `🔔 Item restocked — inventoryItemId=${inventoryItemId}, productId=${productId}, available=${available}`,
-      );
+      // console.log(
+      //   `🔔 Item restocked — inventoryItemId=${inventoryItemId}, productId=${productId}, available=${available}`,
+      // );
       try {
         let subs = [];
         if (productId) {
@@ -118,7 +118,7 @@ export const action = async ({ request }) => {
           );
         }
 
-        console.log("Subscriptions found:", subs);
+        // console.log("Subscriptions found:", subs);
         if (subs.length > 0) {
           console.log(`Found ${subs.length} subscribers, sending emails...`);
           await Promise.all(
@@ -128,6 +128,9 @@ export const action = async ({ request }) => {
                 inventoryItemId,
                 available,
                 productId: s.productId || productId,
+                shopDomain:
+                  request.headers.get("x-shopify-shop-domain") ||
+                  request.headers.get("x-shopify-shop"),
               }),
             ),
           );
@@ -164,15 +167,207 @@ export const action = async ({ request }) => {
     return new Response("Webhook error", { status: 500 });
   }
 };
-// single mail
+
+/* -----------------------------
+   🧱  EMAIL HELPERS SECTION
+   ----------------------------- */
+
+// Fetch shop + product data
+async function fetchShopAndProduct(shop, variantId, token) {
+  try {
+    if (!shop) {
+      console.error("❌ Missing shop domain — cannot fetch data.");
+      return null;
+    }
+
+    // console.log("Fetching variant/product data for", { shop, variantId, token });
+
+    // 1️⃣ Build GraphQL query (like your Remix loader)
+    const variantQuery = `
+      query getVariant($id: ID!) {
+        node(id: $id) {
+          ... on ProductVariant {
+            id
+            title
+            price
+            image { url altText }
+            product {
+              id
+              title
+              handle
+              featuredImage { url altText }
+            }
+          }
+        }
+      }
+    `;
+
+    // Shopify GIDs always need the full prefix
+    const gid = variantId.startsWith("gid://shopify/")
+      ? variantId
+      : `gid://shopify/ProductVariant/${variantId}`;
+
+    const res = await fetch(`https://${shop}/admin/api/${apiVersion}/graphql.json`, {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query: variantQuery, variables: { id: gid } }),
+    });
+
+    const json = await res.json();
+    const variantNode = json?.data?.node;
+
+    if (!variantNode) {
+      console.warn("⚠️ Variant not found:", variantId, json);
+      return null;
+    }
+
+    // 2️⃣ Extract clean data
+    const product = variantNode.product || {};
+    // const productId = product.id?.split("/").pop();
+    const variantNumericId = variantNode.id?.split("/").pop();
+
+    // 3️⃣ Fetch shop info separately
+    const shopRes = await fetch(`https://${shop}/admin/api/${apiVersion}/shop.json`, {
+      headers: {
+        "X-Shopify-Access-Token": token,
+        "Content-Type": "application/json",
+      },
+    });
+    const shopData = (await shopRes.json())?.shop;
+
+    // console.log("✅ Fetched variant/product:", { variantNode, shopData });
+
+    // 4️⃣ Return unified data
+    return {
+      shopInfo: {
+        name: shopData?.name || shop.replace(".myshopify.com", ""),
+        logo: shopData?.image?.src || null,
+        domain: shopData?.domain || shop,
+        currency: shopData?.currency || "USD",
+      },
+      productInfo: {
+        variantId: variantNumericId,
+        variantTitle: variantNode.title,
+        title: product.title,
+        handle: product.handle,
+        image:
+          variantNode.image?.url ||
+          product.featuredImage?.url ||
+          "https://cdn.shopify.com/s/files/1/placeholder.png",
+        price: variantNode.price || "—",
+      },
+    };
+  } catch (err) {
+    console.error("❌ Failed to fetch variant/product:", err);
+    return null;
+  }
+}
+
+
+// Generate HTML Template
+function generateRestockHTML({ shop, product }) {
+  const addToCartUrl = `https://${shop.domain}/cart/${product.variantId || ""}:1`;
+  const productUrl = `https://${shop.domain}/products/${product.handle}`;
+  const subject = `${product.title} is back in stock!`;
+
+  const html = `
+  <!DOCTYPE html>
+  <html>
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background:#f9fafb; margin:0; color:#111827; }
+      .container { max-width:560px; margin:24px auto; background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.08); overflow:hidden; }
+      .header { text-align:center; padding:20px; }
+      .header img { max-width:100px; border-radius:8px; }
+      .shop-name { font-weight:600; font-size:18px; margin-top:8px; }
+      .title { text-align:center; font-size:20px; font-weight:600; margin-top:12px; }
+      .subtext { text-align:center; color:#6b7280; font-size:14px; margin:10px 0 20px; }
+      .image { display:block; width:100%; max-width:320px; margin:0 auto 10px; border-radius:8px; }
+      .price { text-align:center; font-weight:600; margin-bottom:16px; }
+      .btn { display:block; width:80%; margin:8px auto; text-align:center; text-decoration:none; padding:12px 0; border-radius:6px; font-weight:600; }
+      .btn-primary { background:#1e40af; color:#fff; }
+      .btn-secondary { border:1px solid #1e40af; color:#1e40af; background:#fff; }
+      .footer { text-align:center; font-size:12px; color:#9ca3af; padding:16px; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        ${shop.logo ? `<img src="${shop.logo}" alt="${shop.name}" />` : ""}
+        <div class="shop-name">${shop.name}</div>
+      </div>
+      <div class="title">${product.title} is available now!</div>
+      <div class="subtext">Get it before it sells out again.</div>
+      <img src="${product.image}" alt="${product.title}" class="image" />
+      <div class="price">${shop.currency} ${product.price}</div>
+      <a href="${addToCartUrl}" class="btn btn-primary">Add to Cart</a>
+      <a href="${productUrl}" class="btn btn-secondary">View Item</a>
+      <div class="footer">You’re receiving this email because you requested a back-in-stock alert from ${shop.name}.</div>
+    </div>
+  </body>
+  </html>
+  `;
+  return { subject, html };
+}
+
+// Send Restock Notification
+async function sendNotificationEmail({ to, productId, shopDomain }) {
+  const { smtpHost, smtpPort, smtpUser, smtpPass } = emailConfig;
+
+  if (!smtpHost || !to) {
+    console.warn("⚠️ Missing SMTP configuration or recipient.");
+    return;
+  }
+
+  const session = await prisma.session.findFirst({
+    where: { shop: shopDomain },
+  });
+  const token = session?.accessToken;
+
+  if (!token) {
+    console.warn("⚠️ No Shopify token found for shop", shopDomain);
+    return;
+  }
+
+  const data = await fetchShopAndProduct(shopDomain, productId, token);
+  if (!data) {
+    console.warn("⚠️ Missing product/shop info for email");
+    return;
+  }
+
+  const { shopInfo, productInfo } = data;
+  const { subject, html } = generateRestockHTML({
+    shop: shopInfo,
+    product: productInfo,
+  });
+  // console.log("Generated email HTML:", html);
+
+  const transporter = nodemailer.createTransport({
+    host: smtpHost,
+    port: smtpPort,
+    secure: true,
+    auth: { user: smtpUser, pass: smtpPass },
+  });
+
+  await transporter.sendMail({
+    from: `${shopInfo.name} <no-reply@${shopInfo.domain}>`,
+    to,
+    subject,
+    html,
+  });
+
+  // console.log(`✅ Restock email sent to ${to}`);
+}
+
+// Fallback Test Email
 async function sendTestEmail({ inventoryItemId, available }) {
   const { smtpHost, smtpPort, smtpUser, smtpPass, testNotifyEmail } =
     emailConfig;
-
-  if (!smtpHost || !testNotifyEmail) {
-    console.warn("⚠️ Email environment vars missing, skipping email send.");
-    return;
-  }
+  if (!testNotifyEmail) return;
 
   const transporter = nodemailer.createTransport({
     host: smtpHost,
@@ -182,8 +377,7 @@ async function sendTestEmail({ inventoryItemId, available }) {
   });
 
   const html = `
-    <h2>Inventory Update</h2>
-
+    <h2>We have an error send mail to customer for the below product</h2>
     <p>Inventory Item ID: ${inventoryItemId}</p>
     <p>Now available: ${available}</p>
   `;
@@ -191,49 +385,9 @@ async function sendTestEmail({ inventoryItemId, available }) {
   await transporter.sendMail({
     from: `Shopify App <no-reply@Shop>`,
     to: testNotifyEmail,
-    subject: `Test restock alert for Shop`,
+    subject: `Test restock alert`,
     html,
   });
 
-  console.log(`✅ Sent test email to ${testNotifyEmail}`);
-}
-//  mass email to all subscribers
-async function sendNotificationEmail({
-  to,
-  inventoryItemId,
-  available,
-  productId,
-}) {
-  const { smtpHost, smtpPort, smtpUser, smtpPass } = emailConfig;
-
-  if (!smtpHost || !to) {
-    console.warn(
-      "⚠️ Email environment vars or recipient missing, skipping email send.",
-    );
-    return;
-  }
-
-  const transporter = nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: true,
-    auth: { user: smtpUser, pass: smtpPass },
-  });
-
-  const html = `
-    <h2>Inventory Update</h2>
-
-    <p>Inventory Item ID: ${inventoryItemId}</p>
-    ${productId ? `<p>Product ID: ${productId}</p>` : ""}
-    <p>Now available: ${available}</p>
-  `;
-
-  await transporter.sendMail({
-    from: `Shopify App <no-reply@Shop>`,
-    to,
-    subject: `Restock alert for ${productId ?? inventoryItemId}`,
-    html,
-  });
-
-  console.log(`✅ Sent notification email to ${to}`);
+  console.log(`✅ Test email sent to ${testNotifyEmail}`);
 }
