@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import { useState, useMemo } from "react";
 import { useLoaderData } from "react-router";
 import prisma from "../db.server";
@@ -15,7 +16,7 @@ export const loader = async ({ request }) => {
     orderBy: { createdAt: "desc" },
   });
 
-  if (subscriptions.length !== 0) {
+  if (subscriptions.length === 0) {
     // 🧪 Demo Data if DB is empty
     const demoProducts = [
       {
@@ -60,7 +61,7 @@ export const loader = async ({ request }) => {
   );
 
   // 3️⃣ Resolve variant → product
-  let variantToProductMap = {};
+  let variantToProductMap = [];
   if (variantGids.length > 0) {
     const variantQuery = `
       query getVariants($ids: [ID!]!) {
@@ -74,24 +75,27 @@ export const loader = async ({ request }) => {
     `;
     const res = await admin.graphql(variantQuery, { variables: { ids: variantGids } });
     const json = await res.json();
+    // console.log("Fetched variant data from Shopify:", json.data.nodes);
 
-    json.data.nodes
-      .filter(Boolean)
-      .forEach((v) => {
-        variantToProductMap[v.id] = {
-          productId: v.product.id,
-          title: v.product.title,
-          image: v.product.featuredImage?.url || null,
-        };
-      });
-  }
-
+  variantToProductMap = json.data.nodes
+    .filter(Boolean)
+    .map((v) => {
+      const variantId = v.id.split("/").pop();   // 👈 Extract number only
+      const productId = v.product.id.split("/").pop(); // 👈 Same for product
+      return {
+        variantId,
+        productId,
+        title: v.product.title,
+        image: v.product.featuredImage?.url || null,
+      };
+    });
+}
+// console.log("Variant to Product Map:", variantToProductMap);
   // 4️⃣ Merge into final structure
   const productsMap = {};
   subscriptions.forEach((s) => {
-    const variantInfo = variantToProductMap[s.productId];
+    const variantInfo = variantToProductMap.find((v) => v.variantId === s.productId);
     if (!variantInfo) return;
-
     const productId = variantInfo.productId;
     if (!productsMap[productId]) {
       productsMap[productId] = {
@@ -146,7 +150,7 @@ export default function BackInStockDashboard() {
     <s-page heading="Back in Stock">
       {/* ---------- Quick Reports Section ---------- */}
       <s-card>
-        <s-heading level="3">Quick reports</s-heading>
+        {/* <s-heading level="2">Quick Report</s-heading> */}
         <s-divider />
 
         <s-stack direction="inline" gap="loose" wrap>
@@ -165,15 +169,15 @@ export default function BackInStockDashboard() {
           background: "#fff",
           zIndex: 10,
           padding: "12px 0",
-          borderBottom: "1px solid #e5e7eb",
+          // borderBottom: "1px solid #e5e7eb",
           marginBottom: "8px",
         }}
       >
         <s-section>
           <s-stack direction="inline" alignment="center" gap="base">
-            <s-heading level="4" style={{ marginBottom: "0" }}>
+              <div  style={{ marginTop: "4px" }}>
               Product Subscriber Overview
-            </s-heading>
+              </div>
             <input
               type="text"
               placeholder="Search by product or email..."
@@ -212,12 +216,11 @@ export default function BackInStockDashboard() {
   );
 }
 
-// ------------------------------
-// 🧱 Accordion Product Component
-// ------------------------------
+
 // ------------------------------
 // 🧱 Accordion Product Component (Fixed)
 // ------------------------------
+
 function AccordionProduct({ product, isOpen, onToggle }) {
   return (
     <div
@@ -364,8 +367,8 @@ function ReportBox({ label, value }) {
     <div
       style={{
         flex: "1 1 20%",
-        background: "#fafafa",
-        borderRadius: "8px",
+        background: "#ffffff",
+        // borderRadius: "8px",
         padding: "12px 16px",
         textAlign: "center",
         boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
